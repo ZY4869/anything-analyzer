@@ -30,11 +30,14 @@ const mcpManager = new MCPClientManager();
 let sessionManagerRef: SessionManager | null = null;
 let quitInProgress = false;
 
-// MITM Proxy — initialized once, shared across the app lifetime
-const caManager = new CaManager(join(app.getPath("userData"), "mitm-ca"));
-const mitmProxy = new MitmProxyServer(caManager);
+// MITM Proxy — initialized lazily inside whenReady (app.getPath requires ready state)
+let caManager: CaManager;
+let mitmProxy: MitmProxyServer;
 
 app.whenReady().then(async () => {
+  // Initialize MITM CA & proxy (requires app.getPath)
+  caManager = new CaManager(join(app.getPath("userData"), "mitm-ca"));
+  mitmProxy = new MitmProxyServer(caManager);
   // Initialize database
   const db = getDatabase();
   runMigrations(db);

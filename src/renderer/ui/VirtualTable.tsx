@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { List } from 'react-window'
 import styles from './VirtualTable.module.css'
 
 /* ---- Types ---- */
@@ -372,52 +371,18 @@ export function VirtualTable<T>({
     )
   }
 
-  // Virtual scroll mode (no expandable rows) — react-window v2
-  // We define a RowProps interface that carries our data to the row component
-  interface VirtualRowProps {
-    tableData: T[]
-    rk: string | ((r: T) => string | number)
-    onRowFn: typeof onRow
-    rSel: typeof rowSelection
-    cols: VTColumn<T>[]
-    toggleSel: (record: T, event?: React.MouseEvent) => void
-  }
+  // Virtual scroll mode (no expandable rows) — native implementation
+  const [scrollTop, setScrollTop] = useState(0)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
-  const VirtualRowComponent = (props: {
-    ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
-    index: number
-    style: React.CSSProperties
-  } & VirtualRowProps) => {
-    const { index, style: rowStyle, tableData: td, rk: rkp, onRowFn: orf, rSel: rs, cols: colsDef, toggleSel: tsr } = props
-    const record = td[index]
-    if (!record) return null
-    const key = getRowKey(record, rkp)
-    const rp = orf?.(record)
-    const isSel = rs?.selectedKeys.includes(key)
+  const totalHeight = sortedData.length * rowHeight
+  const visibleCount = Math.ceil(height / rowHeight) + 2 // overscan by 2
+  const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - 1)
+  const endIndex = Math.min(sortedData.length, startIndex + visibleCount)
 
-    return (
-      <div
-        style={rowStyle}
-        className={`${styles.row} ${isSel ? styles.rowSelected : ''} ${rp?.className ?? ''} ${rp?.onClick ? styles.rowClickable : ''}`}
-        onClick={rp?.onClick}
-      >
-        {rs && (
-          <div className={styles.checkboxCell}>
-            <input type="checkbox" className={styles.checkbox} checked={isSel ?? false} onClick={(e) => { e.stopPropagation(); tsr(record, e as unknown as React.MouseEvent) }} readOnly />
-          </div>
-        )}
-        {colsDef.map(col => {
-          const val = getValue(record, col.dataIndex)
-          const isFlexCol = !col.width
-          return (
-            <div key={col.key} className={isFlexCol ? styles.cellFlex : styles.cell} style={col.width ? { width: col.width } : undefined}>
-              {col.render ? col.render(val, record, index) : String(val ?? '')}
-            </div>
-          )
-        })}
-      </div>
-    )
-  }
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop)
+  }, [])
 
   return (
     <div className={styles.wrapper}>
@@ -426,20 +391,24 @@ export function VirtualTable<T>({
         {sortedData.length === 0 ? (
           <div className={styles.empty}>{emptyText}</div>
         ) : (
-          <List<VirtualRowProps>
-            rowComponent={VirtualRowComponent}
-            rowCount={sortedData.length}
-            rowHeight={rowHeight}
-            rowProps={{
-              tableData: sortedData,
-              rk: rowKey,
-              onRowFn: onRow,
-              rSel: rowSelection,
-              cols: columns,
-              toggleSel: toggleSelectRow,
-            }}
-            style={{ height, width: '100%' }}
-          />
+          <div
+            ref={scrollContainerRef}
+            onScroll={handleScroll}
+            style={{ height, width: '100%', overflow: 'auto' }}
+          >
+            <div style={{ height: totalHeight, position: 'relative' }}>
+              {sortedData.slice(startIndex, endIndex).map((record, i) => {
+                const actualIndex = startIndex + i
+                return renderRow(record, actualIndex, {
+                  position: 'absolute',
+                  top: actualIndex * rowHeight,
+                  left: 0,
+                  right: 0,
+                  height: rowHeight,
+                })
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>
